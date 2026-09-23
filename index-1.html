@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pl"><head><meta charset="utf-8"><title>112 Służby Ratownicze</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#fff;font-family:system-ui,sans-serif;padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0)}
+#app{max-width:560px;margin:0 auto;padding:16px}
+.logo{display:block;width:120px;height:120px;border-radius:50%;margin:8px auto 14px}
+h1{text-align:center;font-size:20px;margin:0 0 14px}
+input,textarea{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #444;background:#111;color:#fff;font-size:16px}
+.btn{display:block;width:100%;padding:14px;margin:8px 0;border:0;border-radius:12px;color:#fff;font-size:17px;font-weight:700;cursor:pointer}
+.tex{background:repeating-linear-gradient(45deg,rgba(255,255,255,.07) 0 6px,transparent 6px 12px),radial-gradient(circle at 20% 0%,#ff4a3d,#8a0000 70%);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25),0 4px 14px rgba(225,6,0,.4)}
+.big{padding:28px 14px;font-size:22px;letter-spacing:1px}
+.tex2{background:repeating-linear-gradient(-45deg,rgba(255,255,255,.08) 0 5px,transparent 5px 10px),linear-gradient(135deg,#2a6df4,#0a2a7a);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
+.card{background:#15151a;border:1px solid #2a2a33;border-radius:12px;padding:12px;margin:10px 0;overflow-wrap:anywhere;-webkit-touch-callout:none}
+.card img{max-width:100%;border-radius:8px;margin-top:8px}
+.meta{font-size:12px;color:#999;margin-bottom:4px}
+.err{color:#ff6b6b;text-align:center;min-height:20px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px}
+.top button{width:auto;margin:0;padding:8px 14px;font-size:14px}
+.link{background:none;border:0;color:#8ab4ff;text-align:center;width:100%;padding:8px;font-size:15px;cursor:pointer}
+.bar{background:#333;border-radius:6px;height:8px;margin-top:4px}.bar i{display:block;height:100%;background:#e10600;border-radius:6px}
+#chatbox{height:55vh;overflow-y:auto;padding:4px}
+.row{display:flex;gap:8px}.row input{flex:1}.row .btn{width:auto;margin:6px 0;padding:0 18px}
+.adm{color:#ff4a3d;font-weight:700}
+.off{position:fixed;left:-200px;top:0;width:10px;height:10px;opacity:0}
+</style></head><body><div id="app"></div>
+<script type="module">
+/* ====== WKLEJ TU SWOJĄ KONFIGURACJĘ FIREBASE (patrz README) ====== */
+const firebaseConfig = {
+  apiKey: "TU_WKLEJ",
+  authDomain: "TU_WKLEJ",
+  projectId: "TU_WKLEJ",
+  appId: "TU_WKLEJ"
+};
+/* ================================================================= */
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged,updateProfile} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore,collection,doc,addDoc,setDoc,deleteDoc,getDoc,updateDoc,onSnapshot,query,orderBy,limit,arrayUnion} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const fb=initializeApp(firebaseConfig),auth=getAuth(fb),db=getFirestore(fb);
+const DOMAIN="@app112.local",ADMIN="kapiello";
+const $=s=>document.querySelector(s),app=$("#app");
+const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ls={g(k){try{return localStorage.getItem(k)}catch(e){return null}},s(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+let me=null,view="login",mode="login",err="",unsubs=[],pending=null,busy=false;
+const isAdmin=()=>me&&me.toLowerCase()===ADMIN;
+const clear=()=>{unsubs.forEach(u=>u());unsubs=[]};
+const note=(m,ok)=>{const e=$("#pv");if(e){e.textContent=m;e.style.color=ok?"#6f6":"#ff6b6b"}};
+
+onAuthStateChanged(auth,async u=>{
+  clear();
+  if(!u){me=null;view="login";render();return}
+  me=u.displayName||u.email.split("@")[0];
+  try{if((await getDoc(doc(db,"banned",me.toLowerCase()))).exists()){await signOut(auth);err="To konto ma bana.";return}}catch(e){}
+  unsubs.push(onSnapshot(doc(db,"banned",me.toLowerCase()),s=>{if(s.exists()){signOut(auth);err="Zostałeś zbanowany."}}));
+  if(view==="login")view="menu";render();
+});
+window.doAuth=async()=>{
+  if(busy)return;const n=$("#n").value.trim(),p=$("#p").value;
+  if(!/^[\w.-]{3,10}$/.test(n)||p.length<6){err="Nick 3–10 znaków (litery, cyfry, . _ -), hasło min. 6.";return render()}
+  busy=true;
+  try{
+    if(mode==="login")await signInWithEmailAndPassword(auth,n.toLowerCase()+DOMAIN,p);
+    else{
+      const c=+(ls.g("acc")||0);if(c>=3){err="Limit 3 kont na osobę wyczerpany.";busy=false;return render()}
+      const cr=await createUserWithEmailAndPassword(auth,n.toLowerCase()+DOMAIN,p);
+      await updateProfile(cr.user,{displayName:n});ls.s("acc",c+1);me=n;
+    }
+    err="";
+  }catch(e){
+    const m={"auth/email-already-in-use":"Nick zajęty.","auth/invalid-credential":"Błędny nick lub hasło.","auth/weak-password":"Hasło za słabe.","auth/network-request-failed":"Brak internetu."};
+    err=m[e.code]||("Błąd: "+e.code);render();
+  }
+  busy=false;
+};
+window.doOut=()=>signOut(auth);
+window.swap=()=>{mode=mode==="login"?"reg":"login";err="";render()};
+window.go=v=>{view=v;pending=null;render()};
+
+function render(){
+  clear();
+  if(me){unsubs.push(onSnapshot(doc(db,"banned",me.toLowerCase()),s=>{if(s.exists())signOut(auth)}))}
+  if(!me){
+    app.innerHTML=`<img class="logo" src="logo.png"><h1>${mode==="login"?"Logowanie":"Rejestracja"}</h1>
+    <input id="n" placeholder="Nick (3–10 znaków)" maxlength="10" autocomplete="username"><input id="p" type="password" placeholder="Hasło (min. 6)" autocomplete="current-password">
+    <div class="err">${esc(err)}</div><button class="btn tex" onclick="doAuth()">${mode==="login"?"Zaloguj":"Utwórz konto"}</button>
+    <button class="link" onclick="swap()">${mode==="login"?"Nie masz konta? Zarejestruj się":"Masz konto? Zaloguj się"}</button>`;return}
+  if(view==="menu"){
+    app.innerHTML=`<img class="logo" src="logo.png"><h1>Witaj, ${esc(me)}${isAdmin()?' <span class="adm">(admin)</span>':""}</h1>
+    <button class="btn tex big" onclick="go('ev')">🚨 Zdarzenia</button><button class="btn tex big" onclick="go('an')">📢 Ogłoszenia</button>
+    <button class="btn tex big" onclick="go('ch')">💬 Chat</button><button class="btn tex big" onclick="go('ru')">📜 Regulamin</button>
+    <button class="link" onclick="doOut()">Wyloguj</button>
+    <div class="meta" style="text-align:center">Aplikacja nieoficjalna. W nagłym wypadku dzwoń pod 112.</div>`;return}
+  if(view==="ru"){
+    const R=["Zakaz rzeczy 18+","Zakaz wyzywania się","Zakaz wysyłania zdjęć twarzy","Zakaz wysyłania czyjejś twarzy","Zakaz przekleństw","Zakaz wysyłania rzeczy prywatnych","Zakaz wysyłania stron internetowych","Zakaz podawania danych osobowych","Traktujemy się z szacunkiem","Zakaz linków"];
+    app.innerHTML=`<div class="top"><button class="btn tex2" onclick="go('menu')">← Wróć</button><b>📜 Regulamin</b></div><div class="card"><ol style="padding-left:22px;line-height:1.8;margin:0">${R.map(r=>`<li>${r}</li>`).join("")}</ol></div><div class="meta" style="text-align:center">Kanał tylko do odczytu. Łamanie zasad = ban.</div>`;return}
+  const T={ev:"🚨 Zdarzenia",an:"📢 Ogłoszenia",ch:"💬 Chat"}[view];let form="";
+  if((view==="an"||view==="ev")&&isAdmin()){
+    form=`<div class="card"><textarea id="t" rows="3" placeholder="${view==="ev"?"Opis zdarzenia":"Treść ogłoszenia / opis ankiety"}"></textarea>
+    ${view==="an"?`<input id="a1" placeholder="Ankieta: odpowiedź 1 (opcjonalnie)"><input id="a2" placeholder="Ankieta: odpowiedź 2">`:""}
+    <button type="button" class="btn tex2" onclick="openPick('f1')">📷 Wybierz zdjęcie z galerii</button>
+    <button type="button" class="btn tex2" onclick="openPick('f2')">📸 Zrób zdjęcie aparatem</button>
+    <input id="f1" class="off" type="file" accept="image/*"><input id="f2" class="off" type="file" accept="image/*" capture="environment">
+    <div id="pv" class="meta"></div><button class="btn tex" onclick="post()">Opublikuj</button></div>`}
+  if(view==="ch")form=`<div id="chatbox"></div><div class="row"><input id="m" placeholder="Napisz wiadomość…" onkeydown="if(event.key==='Enter')send()"><button class="btn tex" onclick="send()">➤</button></div>`;
+  app.innerHTML=`<div class="top"><button class="btn tex2" onclick="go('menu')">← Wróć</button><b>${T}</b></div>${form}<div id="list"></div>`;
+  ["f1","f2"].forEach(i=>{const el=$("#"+i);if(el)el.onchange=pick});
+  const col={ev:"events",an:"ann",ch:"chat"}[view];
+  unsubs.push(onSnapshot(query(collection(db,col),orderBy("ts",view==="ch"?"asc":"desc"),limit(view==="ch"?100:50)),s=>draw(s.docs,col),e=>{const l=$("#list")||$("#chatbox");if(l)l.innerHTML='<div class="err">Brak dostępu: '+esc(e.code)+'</div>'}));
+}
+function draw(docs,col){
+  if(view==="ch"){const b=$("#chatbox");if(!b)return;
+    b.innerHTML=docs.map(d=>{const x=d.data();return`<div class="card" data-col="chat" data-id="${d.id}"><div class="meta ${String(x.nick).toLowerCase()===ADMIN?"adm":""}">${esc(x.nick)}</div>${esc(x.text)}</div>`}).join("");b.scrollTop=b.scrollHeight;return}
+  $("#list").innerHTML=docs.map(d=>{const x=d.data(),id=d.id;let poll="";
+    if(x.a1){const A=x.v1||[],B=x.v2||[],t=A.length+B.length||1,voted=A.includes(me)||B.includes(me);
+      poll=[[x.a1,A,1],[x.a2,B,2]].map(([l,v,i])=>`<button class="btn tex2" ${voted?"disabled":""} onclick="vote('${id}',${i})">${esc(l)} — ${v.length}</button><div class="bar"><i style="width:${v.length/t*100}%"></i></div>`).join("")}
+    return`<div class="card" data-col="${col}" data-id="${id}"><div class="meta">${esc(x.nick)} · ${new Date(x.ts).toLocaleString("pl")}</div>${esc(x.text)}${x.img?`<img src="${x.img}">`:""}${poll}</div>`}).join("")||'<div class="meta" style="text-align:center">Brak wpisów.</div>';
+}
+window.openPick=id=>{note("Otwieram wybór zdjęcia…",true);$("#"+id).click()};
+async function photo(f){
+  let src,w,h;
+  try{const b=await createImageBitmap(f);src=b;w=b.width;h=b.height}
+  catch(e){src=await new Promise((r,j)=>{const im=new Image();im.onload=()=>r(im);im.onerror=()=>j();im.src=URL.createObjectURL(f)});w=src.naturalWidth;h=src.naturalHeight}
+  const s=Math.min(1,480/Math.max(w,h)),c=document.createElement("canvas");c.width=Math.round(w*s);c.height=Math.round(h*s);
+  c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c.toDataURL("image/jpeg",.5);
+}
+async function pick(e){
+  const f=e.target.files&&e.target.files[0];if(!f)return;note("Przetwarzanie…",true);
+  try{pending=await photo(f);e.target.value="";note("📷 Zdjęcie gotowe ("+Math.round(pending.length/1024)+" KB)",true)}catch(x){pending=null;note("Nie udało się wczytać zdjęcia.")}
+}
+window.post=async()=>{
+  const t=$("#t").value.trim();if(!t&&!pending)return;
+  const o={nick:me,text:t,ts:Date.now()};if(pending)o.img=pending;
+  if(view==="an"){const a1=$("#a1").value.trim(),a2=$("#a2").value.trim();if(a1&&a2){o.a1=a1;o.a2=a2;o.v1=[];o.v2=[]}}
+  note("Wysyłanie…",true);
+  try{await addDoc(collection(db,view==="ev"?"events":"ann"),o);pending=null;$("#t").value="";note("✅ Opublikowano",true)}catch(e){note("Błąd: "+(e.code||e.message))}
+};
+window.vote=async(id,i)=>{try{await updateDoc(doc(db,"ann",id),{["v"+i]:arrayUnion(me)})}catch(e){}};
+window.send=async()=>{
+  const el=$("#m"),t=el.value.trim();if(!t)return;el.value="";
+  const m=t.match(/^\/ban\s+(\S+)$/i);
+  try{
+    if(m){if(!isAdmin())return;const n=m[1].toLowerCase();if(n===ADMIN)return;
+      await setDoc(doc(db,"banned",n),{by:me,ts:Date.now()});
+      await addDoc(collection(db,"chat"),{nick:"System",text:m[1]+" dostał bana.",ts:Date.now()});return}
+    await addDoc(collection(db,"chat"),{nick:me,text:t,ts:Date.now()});
+  }catch(e){}
+};
+/* admin: przytrzymaj wiadomość = usuń */
+let lp=null;
+app.addEventListener("pointerdown",e=>{
+  if(!isAdmin())return;const c=e.target.closest("[data-id]");if(!c)return;clearTimeout(lp);
+  lp=setTimeout(async()=>{c.style.opacity=".4";try{await deleteDoc(doc(db,c.dataset.col,c.dataset.id))}catch(x){c.style.opacity="1"}},700)});
+["pointerup","pointerleave","pointercancel","pointermove"].forEach(t=>app.addEventListener(t,()=>clearTimeout(lp)));
+app.addEventListener("contextmenu",e=>{if(isAdmin()&&e.target.closest("[data-id]"))e.preventDefault()});
+render();
+</script></body></html>
