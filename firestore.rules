@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signed() { return request.auth != null; }
+    function nick() { return request.auth.token.email.split('@')[0]; }
+    function admin() { return signed() && request.auth.token.email == 'kapiello@app112.local'; }
+    function banned() { return exists(/databases/$(db)/documents/banned/$(nick())); }
+    function ok() { return signed() && !banned(); }
+
+    match /banned/{n} {
+      allow read: if signed();
+      allow write: if admin();
+    }
+    match /chat/{id} {
+      allow read: if ok();
+      allow create: if admin() || (ok()
+        && request.resource.data.nick.lower() == nick()
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 500);
+      allow delete: if admin();
+    }
+    match /events/{id} {
+      allow read: if ok();
+      allow create, update, delete: if admin();
+    }
+    match /ann/{id} {
+      allow read: if ok();
+      allow create, delete: if admin();
+      allow update: if admin() || (ok()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['v1', 'v2']));
+    }
+  }
+}
