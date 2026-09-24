@@ -16,7 +16,8 @@ NICK = re.compile(r"^[\w.-]{3,10}$")
 # --- Trwały zapis w prywatnym repozytorium GitHub (żeby dane nie znikały, gdy serwer uśnie/restartuje) ---
 GH_TOKEN = os.environ.get("GH_TOKEN"); GH_REPO = os.environ.get("GH_REPO")
 GH_PATH = os.environ.get("GH_PATH", "data.json"); GH_BRANCH = os.environ.get("GH_BRANCH", "main")
-GH_SHA = None; DIRTY = threading.Event()
+GH_SHA = None; DIRTY = threading.Event(); GH_READY = False
+GH_STAT = {"enabled": bool(GH_TOKEN and GH_REPO), "last_ok": None, "error": None}
 
 def gh(method, suffix="", body=None, accept="application/vnd.github+json"):
     req = urllib.request.Request("https://api.github.com/repos/%s/contents/%s%s" % (GH_REPO, GH_PATH, suffix),
@@ -24,20 +25,42 @@ def gh(method, suffix="", body=None, accept="application/vnd.github+json"):
         headers={"Authorization": "Bearer " + GH_TOKEN, "Accept": accept, "User-Agent": "app112"})
     return urllib.request.urlopen(req, timeout=30).read()
 
+def gh_repo_ok():
+    req = urllib.request.Request("https://api.github.com/repos/%s" % GH_REPO,
+        headers={"Authorization": "Bearer " + GH_TOKEN, "Accept": "application/vnd.github+json", "User-Agent": "app112"})
+    urllib.request.urlopen(req, timeout=30).read()
+
+def herr(e):
+    try: body = e.read().decode()[:200]
+    except Exception: body = ""
+    return "%s %s" % (getattr(e, "code", ""), body or e)
+
 def gh_restore():
-    global GH_SHA
+    global GH_SHA, GH_READY
     try:
         GH_SHA = json.loads(gh("GET", "?ref=" + GH_BRANCH))["sha"]
         raw = gh("GET", "?ref=" + GH_BRANCH, accept="application/vnd.github.raw+json")
         with open(DBFILE, "wb") as f: f.write(raw)
+        GH_READY = True; GH_STAT["error"] = None
         print("Przywrócono dane z GitHuba")
     except urllib.error.HTTPError as e:
-        print("Brak danych na GitHubie (start od zera)" if e.code == 404 else "Błąd przywracania: %s" % e)
+        if e.code == 404:
+            try:
+                gh_repo_ok(); GH_READY = True; GH_STAT["error"] = None
+                print("Repozytorium OK, brak jeszcze pliku z danymi (start od zera)")
+            except Exception as e2:
+                GH_STAT["error"] = "Repozytorium nie istnieje albo token nie ma do niego dostępu (" + herr(e2) + ")"
+                print("BŁĄD:", GH_STAT["error"])
+        else:
+            GH_STAT["error"] = "Błąd przywracania: " + herr(e); print("BŁĄD:", GH_STAT["error"])
     except Exception as e:
-        print("Błąd przywracania:", e)
+        GH_STAT["error"] = "Błąd przywracania: %s" % e; print("BŁĄD:", GH_STAT["error"])
 
 def gh_push():
     global GH_SHA
+    if not GH_READY:
+        gh_restore()          # nie zapisujemy, dopóki nie mamy pewności co jest na GitHubie (żeby nic nie nadpisać)
+        if not GH_READY: DIRTY.set(); return
     with LOCK:
         try:
             with open(DBFILE, "rb") as f: data = f.read()
@@ -46,13 +69,15 @@ def gh_push():
     if GH_SHA: body["sha"] = GH_SHA
     try:
         GH_SHA = json.loads(gh("PUT", "", body))["content"]["sha"]
+        GH_STAT["last_ok"] = time.time(); GH_STAT["error"] = None
     except urllib.error.HTTPError as e:
+        GH_STAT["error"] = "Błąd zapisu: " + herr(e); print("BŁĄD:", GH_STAT["error"])
         if e.code in (409, 422):
             try: GH_SHA = json.loads(gh("GET", "?ref=" + GH_BRANCH))["sha"]
             except Exception: pass
-        print("Błąd zapisu na GitHub:", e); DIRTY.set()
+        DIRTY.set()
     except Exception as e:
-        print("Błąd zapisu na GitHub:", e); DIRTY.set()
+        GH_STAT["error"] = "Błąd zapisu: %s" % e; print("BŁĄD:", GH_STAT["error"]); DIRTY.set()
 
 def gh_worker():
     while True:
@@ -91,6 +116,10 @@ class H(BaseHTTPRequestHandler):
         return d["tokens"].get(t)
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/status":
+            ok = GH_STAT["last_ok"]
+            return self.out(200, {"zapis_na_github_wlaczony": GH_STAT["enabled"], "polaczenie_z_github_ok": GH_READY,
+                                  "ostatni_udany_zapis_sekund_temu": int(time.time() - ok) if ok else None, "blad": GH_STAT["error"]})
         if u.path == "/api/img": return self.img(u)
         if u.path.startswith("/api/"): return self.api("GET", u, None)
         f = {"/": ("index.html", "text/html; charset=utf-8"), "/index.html": ("index.html", "text/html; charset=utf-8"),
@@ -222,6 +251,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT") or os.environ.get("SERVER_PORT") or 8080)
     if GH_TOKEN and GH_REPO:
         gh_restore()
+        if GH_READY: DIRTY.set()   # od razu zapisz plik, żeby było widać że działa
         threading.Thread(target=gh_worker, daemon=True).start()
         def bye(*a):
             gh_push(); os._exit(0)
