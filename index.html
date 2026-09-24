@@ -31,7 +31,7 @@ const ADMIN="kapiello";
 const $=s=>document.querySelector(s),app=$("#app");
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const ls={g(k){try{return localStorage.getItem(k)}catch(e){return null}},s(k,v){try{localStorage.setItem(k,v)}catch(e){}},d(k){try{localStorage.removeItem(k)}catch(e){}}};
-let sys=[],me=null,adm=false,token=ls.g("tok"),view="login",mode="login",err="",pending=null,busy=false,last="";
+let vers={},sys=[],me=null,adm=false,token=ls.g("tok"),view="login",mode="login",err="",pending=null,busy=false,last="";
 let dev=ls.g("dev");if(!dev){dev=Math.random().toString(36).slice(2)+Date.now().toString(36);ls.s("dev",dev)}
 const note=(m,ok)=>{const e=$("#pv");if(e){e.textContent=m;e.style.color=ok?"#6f6":"#ff6b6b"}};
 
@@ -45,7 +45,7 @@ async function api(path,body){
 function logout(m){me=null;adm=false;token=null;ls.d("tok");view="login";err=m||"";render()}
 window.doOut=()=>logout();
 window.swap=()=>{mode=mode==="login"?"reg":"login";err="";render()};
-window.go=v=>{sys=[];view=v;pending=null;last="";render()};
+window.go=v=>{vers={};sys=[];view=v;pending=null;last="";render()};
 
 window.doAuth=async()=>{
   if(busy)return;const n=$("#n").value.trim(),p=$("#p").value;
@@ -62,7 +62,7 @@ window.doAuth=async()=>{
 };
 
 function render(){
-  last="";
+  last="";vers={};
   if(!me){
     app.innerHTML=`<img class="logo" src="${API}/logo.png"><h1>${mode==="login"?"Logowanie":"Rejestracja"}</h1>
     <input id="n" placeholder="Nick (3–10 znaków)" maxlength="10" autocomplete="username"><input id="p" type="password" placeholder="Hasło (min. 4)" autocomplete="current-password">
@@ -95,7 +95,7 @@ async function tick(){
   if(!me)return;
   try{
     const col=colOf();if(!col){await api("/api/me");return}
-    const j=await api("/api/list?col="+col),key=view+sys.length+JSON.stringify(j.items);
+    const j=await api("/api/list?col="+col+"&v="+(vers[col]||""));if(j.same)return;vers[col]=j.v;const key=view+sys.length+JSON.stringify(j.items);
     if(key!==last&&colOf()===col){last=key;draw(j.items,col)}
   }catch(e){}
 }
@@ -107,7 +107,7 @@ function draw(items,col){
   l.innerHTML=items.map(x=>{let poll="";
     if(x.a1){const A=x.v1||[],B=x.v2||[],t=A.length+B.length||1,voted=A.includes(me)||B.includes(me);
       poll=[[x.a1,A,1],[x.a2,B,2]].map(([lab,v,i])=>`<button class="btn tex2" ${voted?"disabled":""} onclick="vote('${x.id}',${i})">${esc(lab)} — ${v.length}</button><div class="bar"><i style="width:${v.length/t*100}%"></i></div>`).join("")}
-    return`<div class="card" data-col="${col}" data-id="${x.id}"><div class="meta">${esc(x.nick)} · ${new Date(x.ts).toLocaleString("pl")}</div>${esc(x.text)}${x.img?`<img src="${x.img}">`:""}${poll}</div>`}).join("")||'<div class="meta" style="text-align:center">Brak wpisów.</div>';
+    return`<div class="card" data-col="${col}" data-id="${x.id}"><div class="meta">${esc(x.nick)} · ${new Date(x.ts).toLocaleString("pl")}</div>${esc(x.text)}${x.img?`<img src="${API}/api/img?col=${col}&id=${x.id}&t=${token}">`:""}${poll}</div>`}).join("")||'<div class="meta" style="text-align:center">Brak wpisów.</div>';
 }
 window.openPick=id=>{note("Otwieram wybór zdjęcia…",true);$("#"+id).click()};
 async function photo(f){
@@ -131,7 +131,7 @@ window.post=async()=>{
 window.vote=async(id,i)=>{try{await api("/api/vote",{id,i});tick()}catch(e){}};
 window.send=async()=>{
   const el=$("#m"),t=el.value.trim();if(!t)return;el.value="";
-  try{const j=await api("/api/post",{col:"chat",text:t});if(j.reply)sys.push(j.reply);last="";tick()}catch(e){}
+  try{const j=await api("/api/post",{col:"chat",text:t});if(j.reply)sys.push(j.reply);last="";vers={};tick()}catch(e){}
 };
 /* admin: przytrzymaj wiadomość = usuń */
 let lp=null;
