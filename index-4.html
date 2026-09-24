@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pl"><head><meta charset="utf-8"><title>112 Służby Ratownicze</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:#fff;font-family:system-ui,sans-serif;padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0)}
+#app{max-width:560px;margin:0 auto;padding:16px}
+.logo{display:block;width:120px;height:120px;border-radius:50%;margin:8px auto 14px}
+h1{text-align:center;font-size:20px;margin:0 0 14px}
+input,textarea{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #444;background:#111;color:#fff;font-size:16px}
+.btn{display:block;width:100%;padding:14px;margin:8px 0;border:0;border-radius:12px;color:#fff;font-size:17px;font-weight:700;cursor:pointer}
+.tex{background:repeating-linear-gradient(45deg,rgba(255,255,255,.07) 0 6px,transparent 6px 12px),radial-gradient(circle at 20% 0%,#ff4a3d,#8a0000 70%);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25),0 4px 14px rgba(225,6,0,.4)}
+.big{padding:28px 14px;font-size:22px;letter-spacing:1px}
+.tex2{background:repeating-linear-gradient(-45deg,rgba(255,255,255,.08) 0 5px,transparent 5px 10px),linear-gradient(135deg,#2a6df4,#0a2a7a);box-shadow:inset 0 0 0 2px rgba(255,255,255,.25)}
+.card{background:#15151a;border:1px solid #2a2a33;border-radius:12px;padding:12px;margin:10px 0;overflow-wrap:anywhere;-webkit-touch-callout:none}
+.card img{max-width:100%;border-radius:8px;margin-top:8px}
+.meta{font-size:12px;color:#999;margin-bottom:4px}
+.err{color:#ff6b6b;text-align:center;min-height:20px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px}
+.top button{width:auto;margin:0;padding:8px 14px;font-size:14px}
+.link{background:none;border:0;color:#8ab4ff;text-align:center;width:100%;padding:8px;font-size:15px;cursor:pointer}
+.bar{background:#333;border-radius:6px;height:8px;margin-top:4px}.bar i{display:block;height:100%;background:#e10600;border-radius:6px}
+#chatbox{height:55vh;overflow-y:auto;padding:4px}
+.row{display:flex;gap:8px}.row input{flex:1}.row .btn{width:auto;margin:6px 0;padding:0 18px}
+.adm{color:#ff4a3d;font-weight:700}
+.off{position:fixed;left:-200px;top:0;width:10px;height:10px;opacity:0}
+</style></head><body><div id="app"></div>
+<script>
+const API=""; /* puste = serwer i strona razem. Jeśli strona jest gdzie indziej (np. GitHub), wpisz tu adres serwera, np. "https://twojserwer.pl" */
+const ADMIN="kapiello";
+const $=s=>document.querySelector(s),app=$("#app");
+const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ls={g(k){try{return localStorage.getItem(k)}catch(e){return null}},s(k,v){try{localStorage.setItem(k,v)}catch(e){}},d(k){try{localStorage.removeItem(k)}catch(e){}}};
+let sys=[],me=null,adm=false,token=ls.g("tok"),view="login",mode="login",err="",pending=null,busy=false,last="";
+let dev=ls.g("dev");if(!dev){dev=Math.random().toString(36).slice(2)+Date.now().toString(36);ls.s("dev",dev)}
+const note=(m,ok)=>{const e=$("#pv");if(e){e.textContent=m;e.style.color=ok?"#6f6":"#ff6b6b"}};
+
+async function api(path,body){
+  const r=await fetch(API+path,{method:body?"POST":"GET",headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:body?JSON.stringify(body):undefined});
+  let j={};try{j=await r.json()}catch(e){}
+  if(me&&(r.status===401||j.error==="banned"))logout(j.error==="banned"?"Zostałeś zbanowany.":"Zostałeś wyrzucony albo sesja wygasła. Zaloguj się ponownie.");
+  if(!r.ok)throw Object.assign(new Error(j.error||"błąd"),{code:j.error});
+  return j;
+}
+function logout(m){me=null;adm=false;token=null;ls.d("tok");view="login";err=m||"";render()}
+window.doOut=()=>logout();
+window.swap=()=>{mode=mode==="login"?"reg":"login";err="";render()};
+window.go=v=>{sys=[];view=v;pending=null;last="";render()};
+
+window.doAuth=async()=>{
+  if(busy)return;const n=$("#n").value.trim(),p=$("#p").value;
+  if(!/^[\w.-]{3,10}$/.test(n)||p.length<4){err="Nick 3–10 znaków (litery, cyfry, . _ -), hasło min. 4.";return render()}
+  busy=true;
+  try{
+    const j=await api(mode==="login"?"/api/login":"/api/register",{nick:n,pw:p,dev});
+    token=j.token;ls.s("tok",token);me=j.nick;adm=j.admin;err="";view="menu";render();
+  }catch(e){
+    const m={bad_credentials:"Błędny nick lub hasło.",taken:"Nick zajęty.",banned:"To konto ma bana.",limit:"Limit 3 kont na osobę wyczerpany.",invalid:"Nieprawidłowy nick lub hasło."};
+    err=m[e.code]||"Brak połączenia z serwerem.";render();
+  }
+  busy=false;
+};
+
+function render(){
+  last="";
+  if(!me){
+    app.innerHTML=`<img class="logo" src="${API}/logo.png"><h1>${mode==="login"?"Logowanie":"Rejestracja"}</h1>
+    <input id="n" placeholder="Nick (3–10 znaków)" maxlength="10" autocomplete="username"><input id="p" type="password" placeholder="Hasło (min. 4)" autocomplete="current-password">
+    <div class="err">${esc(err)}</div><button class="btn tex" onclick="doAuth()">${mode==="login"?"Zaloguj":"Utwórz konto"}</button>
+    <button class="link" onclick="swap()">${mode==="login"?"Nie masz konta? Zarejestruj się":"Masz konto? Zaloguj się"}</button>`;return}
+  if(view==="menu"){
+    app.innerHTML=`<img class="logo" src="${API}/logo.png"><h1>Witaj, ${esc(me)}${adm?' <span class="adm">(admin)</span>':""}</h1>
+    <button class="btn tex big" onclick="go('ev')">🚨 Zdarzenia</button><button class="btn tex big" onclick="go('an')">📢 Ogłoszenia</button>
+    <button class="btn tex big" onclick="go('ch')">💬 Chat</button><button class="btn tex big" onclick="go('ru')">📜 Regulamin</button>
+    <button class="link" onclick="doOut()">Wyloguj</button>
+    <div class="meta" style="text-align:center">Aplikacja nieoficjalna. W nagłym wypadku dzwoń pod 112.</div>`;return}
+  if(view==="ru"){
+    const R=["Zakaz rzeczy 18+","Zakaz wyzywania się","Zakaz wysyłania zdjęć twarzy","Zakaz wysyłania czyjejś twarzy","Zakaz przekleństw","Zakaz wysyłania rzeczy prywatnych","Zakaz wysyłania stron internetowych","Zakaz podawania danych osobowych","Traktujemy się z szacunkiem","Zakaz linków"];
+    app.innerHTML=`<div class="top"><button class="btn tex2" onclick="go('menu')">← Wróć</button><b>📜 Regulamin</b></div><div class="card"><ol style="padding-left:22px;line-height:1.8;margin:0">${R.map(r=>`<li>${r}</li>`).join("")}</ol></div><div class="meta" style="text-align:center">Kanał tylko do odczytu. Łamanie zasad = ban.</div>`;return}
+  const T={ev:"🚨 Zdarzenia",an:"📢 Ogłoszenia",ch:"💬 Chat"}[view];let form="";
+  if((view==="an"||view==="ev")&&adm){
+    form=`<div class="card"><textarea id="t" rows="3" placeholder="${view==="ev"?"Opis zdarzenia":"Treść ogłoszenia / opis ankiety"}"></textarea>
+    ${view==="an"?`<input id="a1" placeholder="Ankieta: odpowiedź 1 (opcjonalnie)"><input id="a2" placeholder="Ankieta: odpowiedź 2">`:""}
+    <button type="button" class="btn tex2" onclick="openPick('f1')">📷 Wybierz zdjęcie z galerii</button>
+    <button type="button" class="btn tex2" onclick="openPick('f2')">📸 Zrób zdjęcie aparatem</button>
+    <input id="f1" class="off" type="file" accept="image/*"><input id="f2" class="off" type="file" accept="image/*" capture="environment">
+    <div id="pv" class="meta"></div><button class="btn tex" onclick="post()">Opublikuj</button></div>`}
+  if(view==="ch")form=`<div id="chatbox"></div><div class="row"><input id="m" placeholder="Napisz wiadomość…" onkeydown="if(event.key==='Enter')send()"><button class="btn tex" onclick="send()">➤</button></div>`;
+  app.innerHTML=`<div class="top"><button class="btn tex2" onclick="go('menu')">← Wróć</button><b>${T}</b></div>${form}<div id="list"></div>`;
+  ["f1","f2"].forEach(i=>{const el=$("#"+i);if(el)el.onchange=pick});
+  tick();
+}
+const colOf=()=>({ev:"events",an:"ann",ch:"chat"}[view]);
+async function tick(){
+  if(!me)return;
+  try{
+    const col=colOf();if(!col){await api("/api/me");return}
+    const j=await api("/api/list?col="+col),key=view+sys.length+JSON.stringify(j.items);
+    if(key!==last&&colOf()===col){last=key;draw(j.items,col)}
+  }catch(e){}
+}
+setInterval(tick,2500);
+function draw(items,col){
+  if(view==="ch"){const b=$("#chatbox");if(!b)return;const bottom=b.scrollHeight-b.scrollTop-b.clientHeight<80;
+    b.innerHTML=items.map(x=>`<div class="card" data-col="chat" data-id="${x.id}"><div class="meta ${String(x.nick).toLowerCase()===ADMIN?"adm":""}">${esc(x.nick)}</div>${esc(x.text)}</div>`).join("")+sys.map(t=>`<div class="card" style="border-color:#e10600"><div class="meta adm">🔒 tylko dla Ciebie</div><div style="white-space:pre-line">${esc(t)}</div></div>`).join("");if(bottom||sys.length)b.scrollTop=b.scrollHeight;return}
+  const l=$("#list");if(!l)return;
+  l.innerHTML=items.map(x=>{let poll="";
+    if(x.a1){const A=x.v1||[],B=x.v2||[],t=A.length+B.length||1,voted=A.includes(me)||B.includes(me);
+      poll=[[x.a1,A,1],[x.a2,B,2]].map(([lab,v,i])=>`<button class="btn tex2" ${voted?"disabled":""} onclick="vote('${x.id}',${i})">${esc(lab)} — ${v.length}</button><div class="bar"><i style="width:${v.length/t*100}%"></i></div>`).join("")}
+    return`<div class="card" data-col="${col}" data-id="${x.id}"><div class="meta">${esc(x.nick)} · ${new Date(x.ts).toLocaleString("pl")}</div>${esc(x.text)}${x.img?`<img src="${x.img}">`:""}${poll}</div>`}).join("")||'<div class="meta" style="text-align:center">Brak wpisów.</div>';
+}
+window.openPick=id=>{note("Otwieram wybór zdjęcia…",true);$("#"+id).click()};
+async function photo(f){
+  let src,w,h;
+  try{const b=await createImageBitmap(f);src=b;w=b.width;h=b.height}
+  catch(e){src=await new Promise((r,j)=>{const im=new Image();im.onload=()=>r(im);im.onerror=()=>j();im.src=URL.createObjectURL(f)});w=src.naturalWidth;h=src.naturalHeight}
+  const s=Math.min(1,640/Math.max(w,h)),c=document.createElement("canvas");c.width=Math.round(w*s);c.height=Math.round(h*s);
+  c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c.toDataURL("image/jpeg",.6);
+}
+async function pick(e){
+  const f=e.target.files&&e.target.files[0];if(!f)return;note("Przetwarzanie…",true);
+  try{pending=await photo(f);e.target.value="";note("📷 Zdjęcie gotowe ("+Math.round(pending.length/1024)+" KB)",true)}catch(x){pending=null;note("Nie udało się wczytać zdjęcia.")}
+}
+window.post=async()=>{
+  const t=$("#t").value.trim();if(!t&&!pending)return;
+  const o={col:colOf(),text:t,img:pending};
+  if(view==="an"){o.a1=$("#a1").value.trim();o.a2=$("#a2").value.trim()}
+  note("Wysyłanie…",true);
+  try{await api("/api/post",o);pending=null;$("#t").value="";if($("#a1")){$("#a1").value="";$("#a2").value=""}note("✅ Opublikowano",true);tick()}catch(e){note("Błąd: "+(e.code||e.message))}
+};
+window.vote=async(id,i)=>{try{await api("/api/vote",{id,i});tick()}catch(e){}};
+window.send=async()=>{
+  const el=$("#m"),t=el.value.trim();if(!t)return;el.value="";
+  try{const j=await api("/api/post",{col:"chat",text:t});if(j.reply)sys.push(j.reply);last="";tick()}catch(e){}
+};
+/* admin: przytrzymaj wiadomość = usuń */
+let lp=null;
+app.addEventListener("pointerdown",e=>{
+  if(!adm)return;const c=e.target.closest("[data-id]");if(!c)return;clearTimeout(lp);
+  lp=setTimeout(async()=>{c.style.opacity=".4";try{await api("/api/delete",{col:c.dataset.col,id:c.dataset.id});tick()}catch(x){c.style.opacity="1"}},700)});
+["pointerup","pointerleave","pointercancel","pointermove"].forEach(t=>app.addEventListener(t,()=>clearTimeout(lp)));
+app.addEventListener("contextmenu",e=>{if(adm&&e.target.closest("[data-id]"))e.preventDefault()});
+(async()=>{
+  if(token){try{const j=await api("/api/me");me=j.nick;adm=j.admin;view="menu"}catch(e){}}
+  render();
+})();
+</script></body></html>
