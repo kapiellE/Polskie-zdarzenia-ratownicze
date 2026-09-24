@@ -26,19 +26,44 @@ input,textarea{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1p
 .off{position:fixed;left:-200px;top:0;width:10px;height:10px;opacity:0}
 </style></head><body><div id="app"></div>
 <script type="module">
-/* ====== WKLEJ TU SWOJĄ KONFIGURACJĘ FIREBASE (patrz README) ====== */
-const firebaseConfig = {
-  apiKey: "TU_WKLEJ",
-  authDomain: "TU_WKLEJ",
-  projectId: "TU_WKLEJ",
-  appId: "TU_WKLEJ"
-};
-/* ================================================================= */
-import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {getAuth,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut,onAuthStateChanged,updateProfile} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {getFirestore,collection,doc,addDoc,setDoc,deleteDoc,getDoc,updateDoc,onSnapshot,query,orderBy,limit,arrayUnion} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-const fb=initializeApp(firebaseConfig),auth=getAuth(fb),db=getFirestore(fb);
+/* Wersja tylko na GitHub: dane zapisują się w przeglądarce (localStorage), bez żadnego serwera. */
+const L={g(k,d){try{const v=localStorage.getItem("a112_"+k);return v?JSON.parse(v):d}catch(e){return d}},s(k,v){try{localStorage.setItem("a112_"+k,JSON.stringify(v))}catch(e){}}};
+const dbl=[],authl=[];
+const D=()=>L.g("db",{}),saveD=d=>{L.s("db",d);dbl.forEach(f=>f())};
+const cur=()=>L.g("cur",null),fireAuth=()=>authl.forEach(f=>f(cur()));
+window.addEventListener("storage",()=>{dbl.forEach(f=>f());fireAuth()});
+const enc=p=>btoa(unescape(encodeURIComponent(p)));
+const initializeApp=()=>({}),getAuth=()=>({}),getFirestore=()=>({});
+const collection=(_,col)=>({t:"col",col}),doc=(_,col,id)=>({t:"doc",col,id,path:col+"/"+id});
+const orderBy=(f,d)=>({o:[f,d]}),limit=n=>({l:n}),arrayUnion=v=>({__au:v});
+const query=(c,...m)=>Object.assign({t:"q",col:c.col},...m);
+const snapDoc=(r,d)=>({id:r.id,exists:()=>r.path in d,data:()=>d[r.path]});
+const getDoc=async r=>snapDoc(r,D());
+const setDoc=async(r,o)=>{const d=D();d[r.path]=o;saveD(d)};
+const deleteDoc=async r=>{const d=D();delete d[r.path];saveD(d)};
+const updateDoc=async(r,u)=>{const d=D(),x=d[r.path]||{};for(const k in u){const v=u[k];x[k]=v&&v.__au!==undefined?[...(x[k]||[]),v.__au]:v}d[r.path]=x;saveD(d)};
+const addDoc=async(c,o)=>{const d=D(),id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);d[c.col+"/"+id]=o;saveD(d)};
+const onSnapshot=(ref,cb)=>{
+  const run=()=>{const d=D();
+    if(ref.t==="doc")return cb(snapDoc(ref,d));
+    let rows=Object.keys(d).filter(k=>k.startsWith(ref.col+"/")).map(k=>({id:k.slice(ref.col.length+1),data:()=>d[k]}));
+    if(ref.o){const [f,dir]=ref.o;rows.sort((a,b)=>(a.data()[f]-b.data()[f])*(dir==="desc"?-1:1))}
+    if(ref.l)rows=ref.o&&ref.o[1]==="desc"?rows.slice(0,ref.l):rows.slice(-ref.l);
+    cb({docs:rows})};
+  dbl.push(run);run();return()=>{const i=dbl.indexOf(run);if(i>=0)dbl.splice(i,1)}};
+const mkErr=c=>{const e=new Error(c);e.code=c;return e};
+const U=()=>L.g("users",{});
+const createUserWithEmailAndPassword=async(_,email,p)=>{
+  const u=U();if(u[email])throw mkErr("auth/email-already-in-use");
+  if(email.startsWith("kapiello@")&&p!=="XBGTfemboy")throw mkErr("auth/invalid-credential");
+  u[email]={pw:enc(p)};L.s("users",u);const user={email,displayName:null};L.s("cur",user);return{user}};
+const updateProfile=async(user,{displayName})=>{const u=U();if(u[user.email])u[user.email].dn=displayName;L.s("users",u);const c=cur();if(c){c.displayName=displayName;L.s("cur",c)}fireAuth()};
+const signInWithEmailAndPassword=async(_,email,p)=>{
+  const u=U()[email];if(!u||u.pw!==enc(p))throw mkErr("auth/invalid-credential");
+  L.s("cur",{email,displayName:u.dn||null});fireAuth()};
+const signOut=async()=>{L.s("cur",null);fireAuth()};
+const onAuthStateChanged=(_,cb)=>{authl.push(cb);setTimeout(()=>cb(cur()),0)};
+const fb=initializeApp(),auth=getAuth(),db=getFirestore();
 const DOMAIN="@app112.local",ADMIN="kapiello";
 const $=s=>document.querySelector(s),app=$("#app");
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
